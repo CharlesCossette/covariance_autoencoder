@@ -7,82 +7,95 @@ import numpy as np
 from .utils import tril_to_vec, covariance_to_cholvec
 import pickle
 import os 
+from typing import Dict, List
 from torch.utils.data import Dataset
+import pandas as pd
 
-def _load_covariance_file(results_file):
+arpimu_identity_state = multinav.arpimu.ARPIMUState.from_absolute_states(
+    [
+        nav.lib.IMUState(
+            SE23.identity(), [0, 0, 0], [0, 0, 0], state_id=i
+        )
+        for i in range(3)
+    ],
+    1,
+)
 
-    # Check cache first
-    if os.path.exists("./cache/" + results_file + ".cache"):
-        return torch.load("./cache/" + results_file + ".cache")
-    else:
-        results = pickle.load(open("./results/" + results_file, "rb"))
-        _identity = multinav.arpimu.ARPIMUState.from_absolute_states(
+def _pynav_to_dataframes(file_path: str) -> Dict[str, pd.DataFrame]:
+    """
+    
+
+    Parameters
+    ----------
+    file_path : str
+
+    Returns
+    -------
+    df_dict : dict[str, pd.DataFrame]
+    """
+    results = pickle.load(open(file_path, "rb"))
+
+
+    # assumes results is a dict
+    df_dict = {}
+    for agent_name, agent_results in results.items():
+        agent_results: nav.GaussianResultList = agent_results
+
+        cov = agent_results.covariance
+        states = np.array(
             [
-                nav.lib.IMUState(
-                    SE23.identity(), [0, 0, 0], [0, 0, 0], state_id=i
-                )
-                for i in range(3)
-            ],
-            1,
+                x.minus(arpimu_identity_state).ravel()
+                for x in agent_results.state
+            ]
         )
+        cholvec = covariance_to_cholvec(torch.tensor(cov))
+        states = torch.tensor(states)
+        data_np = torch.concat((cholvec, states), dim=1).numpy()
+        df_dict[agent_name] = pd.DataFrame(data_np)
 
-        # assumes results is a dict
-        _covariances = []
-        _states = []
-        for agent_name, agent_results in results.items():
-            agent_results: nav.GaussianResultList = agent_results
+    return df_dict
 
-            _covariances.append(agent_results.covariance)
-            _states.extend(
-                [
-                    x.minus(_identity).ravel()
-                    for x in agent_results.state
-                ]
-            )
+def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
+    """
+    Identifies the list of files that need to be loaded from the cache to 
+    constitute the dataset. If the cache files does not exist, then the
+    pynav file is parsed and the cache files are created.
 
-        _covariances = torch.tensor(np.concatenate(_covariances, axis=0))
-        _states = torch.tensor(_states)
+    Parameters
+    ----------
+    filename_list : str
+        list of pynav files to load
+    data_dir : str
+        string of the directory where the pynav files are stored
 
+    Returns
+    -------
+    List[str]
+        list of cache files to load
+    """
 
-        # Cache results
-        torch.save(
-            (_covariances, _states), "./cache/" + results_file + ".cache"
-        )
-        return _covariances, _states
+    cache_file_list = os.listdir("cache/")
+    files = []
+    for filename in filename_list:
+        file_name_no_ext = os.path.splitext(filename)[0]
 
+        if any([file_name_no_ext in f for f in cache_file_list]):
+            # Then there is cache entry! just load it
+            files.extend([f for f in cache_file_list if file_name_no_ext in f])
+        else: 
+            # Otherwise, need to parse the pynav file directly.
+            df_dict = _pynav_to_dataframes(os.path.join(data_dir, filename))
+            # Cache the results
+            for agent_name, df in df_dict.items():
+                cache_file_name = f"{file_name_no_ext}_{agent_name}.cache"
+                df.columns = df.columns.astype(str)
+                df.to_feather(os.path.join("cache", cache_file_name))
+                files.append(cache_file_name)
 
-def _load_covariance_data(results_file_list, clip_end=True):
-
-    # Check if list or single file was passed
-    if isinstance(results_file_list, list) or isinstance(
-        results_file_list, tuple
-    ):
-        pass
-    else:
-        results_file_list = [results_file_list]
-
-    _covariances = None
-    _states = None
-    for results_file in results_file_list:
-
-        _cov, _s = _load_covariance_file(results_file)
-
-        if clip_end:
-            if _cov.shape[0] > 5000:
-                _cov = _cov[:5000]
-                _s = _s[:5000]
-
-        if _covariances is None:
-            _covariances = _cov
-        else:
-            _covariances = torch.cat((_covariances, _cov))
-
-        if _states is None:
-            _states = _s
-        else:
-            _states = torch.cat((_states, _s))
-
-    return _covariances, _states
+    return files
+        
+        
+    
 
 
 class CovarianceDataset(Dataset):
@@ -107,25 +120,32 @@ class CovarianceDataset(Dataset):
     _s = torch.Tensor(unit_scaling).reshape((-1, 1))
     #scaling_matrix =  _s @ _s.T 
     scaling_matrix = torch.ones((45,45))
-    def __init__(self, results_file_list, clip_end=False):
 
-        self._covariances, self._states = _load_covariance_data(
-            results_file_list, clip_end=clip_end
-        )
+    def __init__(self, results_file_list, data_dir = None, samples_per_file=-1):
+
+
+        self.files = _get_data_files(results_file_list, data_dir)
         
-        self._covariances = torch.true_divide(self._covariances, self.scaling_matrix)
+        dfs = []
+        for file in self.files:
+            df = pd.read_feather(os.path.join("cache", file))
+            if samples_per_file >0 and samples_per_file < len(df):
+                df = df.iloc[:samples_per_file, :]
+            dfs.append(df)
 
-        self._covariances = covariance_to_cholvec(self._covariances)
+        # merge the dataframes 
+        dfs = pd.concat(dfs, ignore_index=True)
+        data = dfs.to_numpy()
+        self.data = torch.Tensor(data)
 
     def __len__(self):
-        return len(self._covariances)
-
+        return len(self.data)
+    
     def __getitem__(self, idx):
-        cov = self._covariances[idx]
-        dx = self._states[idx]
-        return cov, dx
+        return  self.data[idx, :-45],  self.data[idx, -45:]
 
 
+    
 
 
 

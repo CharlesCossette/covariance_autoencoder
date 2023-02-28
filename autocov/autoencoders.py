@@ -6,7 +6,7 @@ import multinav.arpimu
 import multinav.mrfilter
 import numpy as np
 from .utils import tril_to_vec, tril_to_sym, vec_to_tril, cholvec_to_covariance
-from .datasets import CovarianceDataset
+from .datasets import CovarianceDataset, arpimu_identity_state
 
 # Autoencoder Model
 class Autoencoder(nn.Module):
@@ -17,23 +17,14 @@ class Autoencoder(nn.Module):
             nn.GELU(),
             nn.Linear(256, 128),
             nn.GELU(),
-            nn.Linear(128, 45),
+            nn.Linear(128, 90),
         )
         self.decoder = nn.Sequential(
-            nn.Linear(45+45, 128),
+            nn.Linear(90, 128),
             nn.GELU(),
             nn.Linear(128, 256),
             nn.GELU(),
-            nn.Linear(256, 1035-45),
-        )
-        self._identity = multinav.arpimu.ARPIMUState.from_absolute_states(
-            [
-                nav.lib.IMUState(
-                    SE23.identity(), [0, 0, 0], [0, 0, 0], state_id=i
-                )
-                for i in range(3)
-            ],
-            1,
+            nn.Linear(256, 1035),
         )
         #self.residual_matrix = nn.Parameter(torch.randn((1035-45, 90)))
 
@@ -47,7 +38,7 @@ class Autoencoder(nn.Module):
         with torch.no_grad():
             cov_in = torch.Tensor(x.covariance).unsqueeze(0)
             cov_in = torch.true_divide(cov_in, CovarianceDataset.scaling_matrix)
-            dx = torch.Tensor(x.state.minus(self._identity).ravel()).unsqueeze(
+            dx = torch.Tensor(x.state.minus(arpimu_identity_state).ravel()).unsqueeze(
                 0
             )
             chol_in = tril_to_vec(torch.linalg.cholesky(cov_in))

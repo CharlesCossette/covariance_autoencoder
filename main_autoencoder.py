@@ -14,10 +14,11 @@ import autocov
 num_epochs = 200
 batch_size = 256
 learning_rate = 1e-3
+samples_per_file = 1000
 model_path = None
-model_path = "./models/autoencoder.pth"
+# model_path = "./models/autoencoder.pth"
 train_file = [
-    # "res_bias_calib2_decent_15_200.p",
+    "res_bias_calib2_decent_15_200_high_freq.p",
     "res_simple_los_2022_08_03_12_41_20_decent_15_40.p",
     "res_random1_decent_10_100.p",
     "res_bias_calib2_decent_15_200_lower_freq_pre_fusion.p",
@@ -26,27 +27,24 @@ valid_file = [
     "res_random2_decent_15_55_lower_freq.p",
     "res_random2_decent_15_55.p",
 ]
-
-# train_file = valid_file
+data_dir = "/home/charles/multinav/results/"
 
 ################################################################################
 # Dataset and data loader
-train_dataset = autocov.CovarianceDataset(train_file)
-val_dataset =  autocov.CovarianceDataset(valid_file)
+train_dataset = autocov.CovarianceDataset(train_file, data_dir=data_dir, samples_per_file=samples_per_file)
+val_dataset =  autocov.CovarianceDataset(valid_file, data_dir=data_dir, samples_per_file=samples_per_file)
 # val_dataset = train_dataset
 
 # Load the datasets in batches using DataLoader
 if batch_size == -1:
     train_batch_size = len(train_dataset)
-    val_batch_size = len(val_dataset)
 else:
     train_batch_size = batch_size
     val_batch_size = batch_size
 
 train_loader = DataLoader(
-    train_dataset, batch_size=train_batch_size, shuffle=True
+    train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=4
 )
-val_loader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True)
 
 
 # Loss function and optimizer
@@ -62,9 +60,9 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Tensorboard
 writer = SummaryWriter()
-
+val_dataset_len = 2000
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-val_plot = ax.plot(range(len(val_dataset)), range(len(val_dataset)))[0]
+val_plot = ax.plot(range(val_dataset_len), range(val_dataset_len))[0]
 ax.set_ylim(0, 1)
 ax.set_xlabel("Time step")
 ax.set_ylabel("Frobenius error")
@@ -102,7 +100,7 @@ try:
     for epoch in range(num_epochs):
         # Evaluate the model on the validation set
         with torch.no_grad():
-            val_cholvec, val_x = val_dataset[:]
+            val_cholvec, val_x = val_dataset[:val_dataset_len]
             val_cholvec_output = model((val_cholvec, val_x))
 
             val_error =  autocov.frobenius_error(
@@ -115,11 +113,11 @@ try:
             val_plot.set_ydata(val_error)
             val_cov =  autocov.cholvec_to_covariance(val_cholvec, 45)
             val_cov_output =  autocov.cholvec_to_covariance(val_cholvec_output, 45)
-            idx_j = np.linspace(0, len(val_dataset) - 1, N_figs).astype(int)
+            idx_j = np.linspace(0, val_dataset_len - 1, N_figs).astype(int)
             E = val_cov_output - val_cov
             eigs = torch.linalg.eigvalsh(E).T
             eigs = eigs[
-                :, np.linspace(0, len(val_dataset) - 1, N_eigs).astype(int)
+                :, np.linspace(0, val_dataset_len - 1, N_eigs).astype(int)
             ]
             eigs = eigs.detach().numpy()
             eigs = np.flipud(eigs)
@@ -132,12 +130,11 @@ try:
                 axes[0, j].set_title(f"t={idx_j[j]}")
 
         # Train the model
-        for data in train_loader:
-            cholvec, x = data
+        for cholvec, x  in train_loader:
             # Forward pass
-            output = model(data)
-            #loss = criterion(output, cholvec)
-            loss =  autocov.frobenius_error(cholvec, output)
+            output = model((cholvec, x ))
+            loss = criterion(output, cholvec)
+            #loss =  autocov.frobenius_error(cholvec, output)
             # loss = log_barrier_loss(output, cholvec)
             # Backward and optimize
             optimizer.zero_grad()
