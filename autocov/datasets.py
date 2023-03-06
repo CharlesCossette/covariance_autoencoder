@@ -1,17 +1,19 @@
 import torch
 import pynav as nav
 from pylie import SE23, SO3
-import multinav.arpimu
-import multinav.mrfilter
+# import multinav
+import multinav.arpimu  as arpimu
+# import multinav.mrfilter
 import numpy as np
-from .utils import tril_to_vec, covariance_to_cholvec
+from .utils import tril_to_vec, covariance_to_cholvec, cholvec_to_covariance
 import pickle
 import os 
 from typing import Dict, List
 from torch.utils.data import Dataset
 import pandas as pd
+from multinav.states import ARPIMUState
 
-arpimu_identity_state = multinav.arpimu.ARPIMUState.from_absolute_states(
+arpimu_identity_state = ARPIMUState.from_absolute_states(
     [
         nav.lib.IMUState(
             SE23.identity(), [0, 0, 0], [0, 0, 0], state_id=i
@@ -73,8 +75,10 @@ def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
     List[str]
         list of cache files to load
     """
+    #cache dir relative to this file
+    cache_path = os.path.join(os.path.dirname(__file__), "../cache")
 
-    cache_file_list = os.listdir("cache/")
+    cache_file_list = os.listdir(cache_path)
     files = []
     for filename in filename_list:
         file_name_no_ext = os.path.splitext(filename)[0]
@@ -89,7 +93,7 @@ def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
             for agent_name, df in df_dict.items():
                 cache_file_name = f"{file_name_no_ext}_{agent_name}.cache"
                 df.columns = df.columns.astype(str)
-                df.to_feather(os.path.join("cache", cache_file_name))
+                df.to_feather(os.path.join(cache_path, cache_file_name))
                 files.append(cache_file_name)
 
     return files
@@ -118,19 +122,28 @@ class CovarianceDataset(Dataset):
     ] * 3
 
     _s = torch.Tensor(unit_scaling).reshape((-1, 1))
-    #scaling_matrix =  _s @ _s.T 
-    scaling_matrix = torch.ones((45,45))
+    scaling_matrix =  _s @ _s.T 
+    #scaling_matrix = torch.ones((45,45))
 
-    def __init__(self, results_file_list, data_dir = None, samples_per_file=-1):
+    def __init__(self, results_file_list, data_dir = None, samples_per_file=-1, scaling=True):
 
 
         self.files = _get_data_files(results_file_list, data_dir)
+
+        cache_path = os.path.join(os.path.dirname(__file__), "../cache")
         
         dfs = []
         for file in self.files:
-            df = pd.read_feather(os.path.join("cache", file))
+            df = pd.read_feather(os.path.join(cache_path, file))
             if samples_per_file >0 and samples_per_file < len(df):
                 df = df.iloc[:samples_per_file, :]
+
+            
+            cholvec = torch.Tensor(df.iloc[:, :-45].values)
+            cov = cholvec_to_covariance(cholvec, 45)
+            cov = cov / self.scaling_matrix
+            df.iloc[:, :-45] = tril_to_vec(cov).detach().numpy()
+
             dfs.append(df)
 
         # merge the dataframes 

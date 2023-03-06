@@ -14,7 +14,11 @@ import autocov
 num_epochs = 200
 batch_size = 256
 learning_rate = 1e-3
-samples_per_file = 1000
+dataset_kwargs = {
+    "samples_per_file": -1,
+    "data_dir": "/home/charles/multinav/results/",
+}
+scaling = True
 model_path = None
 # model_path = "./models/autoencoder.pth"
 train_file = [
@@ -27,28 +31,20 @@ valid_file = [
     "res_random2_decent_15_55_lower_freq.p",
     "res_random2_decent_15_55.p",
 ]
-data_dir = "/home/charles/multinav/results/"
+# train_file = valid_file
 
 ################################################################################
 # Dataset and data loader
-train_dataset = autocov.CovarianceDataset(train_file, data_dir=data_dir, samples_per_file=samples_per_file)
-val_dataset =  autocov.CovarianceDataset(valid_file, data_dir=data_dir, samples_per_file=samples_per_file)
-# val_dataset = train_dataset
-
-# Load the datasets in batches using DataLoader
-if batch_size == -1:
-    train_batch_size = len(train_dataset)
-else:
-    train_batch_size = batch_size
-    val_batch_size = batch_size
+train_dataset = autocov.CovarianceDataset(train_file, **dataset_kwargs)
+val_dataset = autocov.CovarianceDataset(valid_file, **dataset_kwargs)
 
 train_loader = DataLoader(
-    train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=4
+    train_dataset, batch_size=batch_size, shuffle=True,
 )
 
 
 # Loss function and optimizer
-model =  autocov.Autoencoder()
+model = autocov.Autoencoder(normalize=True)
 if model_path is not None:
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
@@ -56,7 +52,7 @@ if model_path is not None:
 # criterion = nn.L1Loss(reduction="sum")
 # criterion = nn.HuberLoss(reduction="sum")
 criterion = nn.MSELoss(reduction="sum")
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
 
 # Tensorboard
 writer = SummaryWriter()
@@ -73,12 +69,14 @@ N_figs = 10
 fig2, axes = plt.subplots(2, N_figs, figsize=(1.5 * N_figs, 5))
 plt.setp(axes, xticks=[], yticks=[])
 cholvec = train_dataset[0][0]
-cov =  autocov.cholvec_to_covariance(cholvec.unsqueeze(0), 45).detach().numpy()[0]
+cov = (
+    autocov.cholvec_to_covariance(cholvec.unsqueeze(0), 45).detach().numpy()[0]
+)
 img = np.zeros_like(axes)
 for i in range(2):
     for j in range(N_figs):
         img[i, j] = axes[i, j].imshow(
-            cov, cmap="seismic_r", vmin=-0.05, vmax=0.05
+            cov, cmap="seismic_r", vmin=-3, vmax=3
         )
 
 fig2.subplots_adjust(
@@ -88,7 +86,9 @@ fig2.subplots_adjust(
 
 N_eigs = 300
 fig3, ax = plt.subplots(1, 1, figsize=(10, 5))
-im_eig = ax.imshow(np.zeros((45, N_eigs)), cmap="seismic_r", vmin=-0.1, vmax=0.1)
+im_eig = ax.imshow(
+    np.zeros((45, N_eigs)), cmap="seismic_r", vmin=-3, vmax=3
+)
 ax.set_ylabel("Eigenvalue of cov_hat - cov")
 ax.set_xlabel("Data Sample #")
 ax.set_title("Eigenvalues of Error")
@@ -102,17 +102,20 @@ try:
         with torch.no_grad():
             val_cholvec, val_x = val_dataset[:val_dataset_len]
             val_cholvec_output = model((val_cholvec, val_x))
-
-            val_error =  autocov.frobenius_error(
+            val_cholvec = model.normalize(val_cholvec)
+            val_cholvec_output = model.normalize(val_cholvec_output)
+            val_error = autocov.frobenius_error(
                 val_cholvec_output,
                 val_cholvec,
                 reduction="none",
-                scaling_matrix= autocov.CovarianceDataset.scaling_matrix,
+                normalize=True,
             )
             mean_val_error = torch.mean(val_error)
             val_plot.set_ydata(val_error)
-            val_cov =  autocov.cholvec_to_covariance(val_cholvec, 45)
-            val_cov_output =  autocov.cholvec_to_covariance(val_cholvec_output, 45)
+            val_cov = autocov.cholvec_to_covariance(val_cholvec, 45)
+            val_cov_output = autocov.cholvec_to_covariance(
+                val_cholvec_output, 45
+            )
             idx_j = np.linspace(0, val_dataset_len - 1, N_figs).astype(int)
             E = val_cov_output - val_cov
             eigs = torch.linalg.eigvalsh(E).T
@@ -130,18 +133,20 @@ try:
                 axes[0, j].set_title(f"t={idx_j[j]}")
 
         # Train the model
-        for cholvec, x  in train_loader:
+        for cholvec, x in train_loader:
             # Forward pass
-            output = model((cholvec, x ))
-            loss = criterion(output, cholvec)
-            #loss =  autocov.frobenius_error(cholvec, output)
-            # loss = log_barrier_loss(output, cholvec)
+            output = model((cholvec, x))
+            cholvec = model.normalize(cholvec)
+            output = model.normalize(output)
+            loss = criterion(cholvec, output)
+            # loss =  autocov.frobenius_error(cholvec, output, normalize=True)
+
             # Backward and optimize
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            e =  autocov.frobenius_error(output, cholvec)
+            e = autocov.frobenius_error(output, cholvec, normalize=True)
             print(
                 f"Epoch [{epoch + 1}/{num_epochs}], "
                 + f"Loss: {loss.item():.4e}, "

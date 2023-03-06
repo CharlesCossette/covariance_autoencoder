@@ -1,5 +1,7 @@
 import torch
 
+
+
 def tril_to_vec(x: torch.Tensor, size=None):
     """
     Converts a batch lower triangular matrix to a vector
@@ -24,6 +26,7 @@ def tril_to_sym(x: torch.Tensor):
     diagonal = torch.diagonal(out, dim1=1, dim2=2)
     out = out - torch.diag_embed(diagonal) / 2
     return out
+
 
 
 def covariance_to_cholvec(covariance: torch.Tensor, size=45):

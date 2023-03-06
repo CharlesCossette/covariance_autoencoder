@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np 
 import pynav as nav
 model_path = None
-model_path = "./models/imu_rmi_cov.pth"
+# model_path = "./models/imu_rmi_cov.pth"
 
 
 
