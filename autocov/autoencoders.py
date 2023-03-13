@@ -14,18 +14,18 @@ class Autoencoder(nn.Module):
     def __init__(self, normalize=False, load_saved=False):
         super(Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(1035, 512),
+            nn.Linear(1035, 64),
             nn.GELU(),
-            nn.Linear(512, 128),
+            nn.Linear(64, 32),
             nn.GELU(),
-            nn.Linear(128, 45),
+            nn.Linear(32, 5),
         )
         self.decoder = nn.Sequential(
-            nn.Linear(90, 128),
+            nn.Linear(50, 64),
             nn.GELU(),
-            nn.Linear(128, 256),
+            nn.Linear(64, 64),
             nn.GELU(),
-            nn.Linear(256, 1035),
+            nn.Linear(64, 1035),
         )
         # self.residual_matrix = nn.Parameter(torch.randn((1035-45, 90)))
 
@@ -120,25 +120,25 @@ class Autoencoder(nn.Module):
 
 
 class RMICovModel(torch.nn.Module):
-    def __init__(self, load_saved=False):
+    def __init__(self, load_saved=False, encoding_size=2):
         super(RMICovModel, self).__init__()
-
+        self.encoding_size = encoding_size
         self.encoder = nn.Sequential(
             nn.Linear(120, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
-            nn.Linear(256, 2),
+            nn.Linear(256, encoding_size),
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(12, 256),
+            nn.Linear(10 + encoding_size, 256),
             nn.GELU(),
             nn.Linear(256, 256),
             nn.GELU(),
             nn.Linear(256, 120),
         )
-        self.residual_matrix = nn.Parameter(torch.randn((120, 12)))
+        self.residual_matrix = nn.Parameter(torch.randn((120, 10 + encoding_size)))
 
         if load_saved:
             # model file relative to this file
@@ -170,10 +170,10 @@ class RMICovModel(torch.nn.Module):
         return cov_out.squeeze(0).detach().numpy()
 
     def forward(self, x, trilvecs):
-        enc = self.encoder(trilvecs)
-        x = torch.cat((x, enc), dim=1)
+        if self.encoding_size > 0:
+            enc = self.encoder(trilvecs)
+            x = torch.cat((x, enc), dim=1)
         x = self.decoder(x) + torch.matmul(x, self.residual_matrix.T)
-        # x = x*torch.pow(dts, 2).unsqueeze(1)
         return x
 
 
@@ -186,7 +186,7 @@ class BasisModel(nn.Module):
         super().__init__()
         self.basis_matrix = nn.Parameter(torch.zeros((1035, 200)))
         if basis_matrix is not None:
-            self.basis_matrix = nn.Parameter(basis_matrix)
+            self.basis_matrix = nn.Parameter(basis_matrix.clone().contiguous())
 
         if load_saved:
             # model file relative to this file
@@ -194,6 +194,10 @@ class BasisModel(nn.Module):
                 os.path.dirname(__file__), "../models/basis_encoder.pth"
             )
             self.load_state_dict(torch.load(model_file))
+
+
+        self.static_matrices = tril_to_vec(torch.eye(45).unsqueeze(0)).reshape((-1, 1))
+
 
     def forward_from_pynav(self, x: multinav.mrfilter.MRFilterState):
         """
@@ -205,9 +209,12 @@ class BasisModel(nn.Module):
         with torch.no_grad():
             cov_in = torch.Tensor(x.covariance).unsqueeze(0) 
             cov_in = cov_in / datasets.CovarianceDataset.scaling_matrix
-            trilvec_in = tril_to_vec(cov_in)
-            trilvec_out = self.forward(trilvec_in.T).T
-            cov_out = tril_to_sym(vec_to_tril(trilvec_out)).squeeze(0)
+            # cov_in = torch.linalg.inv(cov_in)
+            cholvec_in = covariance_to_cholvec(cov_in + 1e-4*torch.eye(45))
+            cholvec_out = self.forward(cholvec_in.T).T
+            cov_out = cholvec_to_covariance(cholvec_out).squeeze(0)
+            # cov_out = tril_to_sym(vec_to_tril(cholvec_out)).squeeze(0)
+            # cov_out = torch.linalg.inv(cov_out)
             cov_out = cov_out * datasets.CovarianceDataset.scaling_matrix
             cov_out = (cov_out + cov_out.T) / 2
             cov_out = cov_out.detach().numpy()
@@ -215,7 +222,7 @@ class BasisModel(nn.Module):
         return cov_out
 
     def encode(self, target):
-        M = self.basis_matrix
+        M = torch.hstack((self.basis_matrix, self.static_matrices))
         w_hat = torch.linalg.solve(M.T @ M, M.T @ target)
         return w_hat
 
@@ -229,7 +236,7 @@ class BasisModel(nn.Module):
         -------
         target_hat : [1035 x N]
         """
-        M = self.basis_matrix
+        M = torch.hstack((self.basis_matrix, self.static_matrices))
         cholvec_hat = M @ w_hat
         return cholvec_hat #[1035 x N]
     

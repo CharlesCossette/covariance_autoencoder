@@ -15,8 +15,9 @@ import pynav as nav
 model_path = None
 # model_path = "./models/imu_rmi_cov.pth"
 
+torch.set_default_dtype(torch.float64)
 
-
+encoding_size = 2
 def covariance_error(trilvecs, trilvecs_out):
     trilvecs = vec_to_tril(trilvecs, 15)
     trilvecs_out = vec_to_tril(trilvecs_out, 15)
@@ -30,7 +31,6 @@ def covariance_error(trilvecs, trilvecs_out):
     return e
 
 import matplotlib.pyplot as plt
-writer = SummaryWriter()
 N_figs = 10
 fig2, axes = plt.subplots(2, N_figs, figsize=(1.5*N_figs, 5))
 plt.setp(axes, xticks=[], yticks=[])
@@ -42,7 +42,7 @@ for i in range(2):
 fig2.subplots_adjust(wspace=0.0, hspace=0.0, left=0.0, right=1.0, bottom=0.0, top=1.0)
 
 
-model = RMICovModel()
+model = RMICovModel(encoding_size=encoding_size)
 if model_path is not None:
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path))
@@ -53,8 +53,9 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
 validset = IMUExperimentalRMI("./data/random2.bag")
 
 
+writer = SummaryWriter(comment=f"_imu_rmi_cov_{encoding_size}")
 try:
-    for seed in range(100):
+    for seed in range(80):
 
         data = IMURMIDataset(seed=seed, num_samples=1000, max_window_size=100)
         dataloader = DataLoader(data, batch_size=128, shuffle=True)
@@ -88,7 +89,7 @@ try:
         writer.add_figure("Covariance", fig2, seed)
 
         # Training
-        for epoch in range(100):
+        for epoch in range(50):
             for rmis, trilvecs in dataloader:
                 optimizer.zero_grad()
                 trilvecs_out = model(rmis, trilvecs)

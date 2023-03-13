@@ -19,13 +19,13 @@ dataset_kwargs = {
     "data_dir": "/home/charles/multinav/results/",
 }
 scaling = True
-model_path = None
-# model_path = "./models/autoencoder.pth"
+load_saved=False
 train_file = [
-    "res_bias_calib2_decent_15_200_high_freq.p",
+    # "res_bias_calib2_decent_15_200_high_freq.p",
     "res_simple_los_2022_08_03_12_41_20_decent_15_40.p",
     "res_random1_decent_10_100.p",
     "res_bias_calib2_decent_15_200_lower_freq_pre_fusion.p",
+    "results_imu_decent.p"
 ]
 valid_file = [
     "res_random2_decent_15_55_lower_freq.p",
@@ -44,15 +44,9 @@ train_loader = DataLoader(
 
 
 # Loss function and optimizer
-model = autocov.Autoencoder(normalize=True)
-if model_path is not None:
-    if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path))
-
-# criterion = nn.L1Loss(reduction="sum")
-# criterion = nn.HuberLoss(reduction="sum")
-criterion = nn.MSELoss(reduction="sum")
-optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+model = autocov.Autoencoder(load_saved=load_saved)
+criterion = nn.MSELoss(reduction="mean")
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Tensorboard
 writer = SummaryWriter()
@@ -68,7 +62,7 @@ ax.set_title("Reconstruction error on validation trajectory")
 N_figs = 10
 fig2, axes = plt.subplots(2, N_figs, figsize=(1.5 * N_figs, 5))
 plt.setp(axes, xticks=[], yticks=[])
-cholvec = train_dataset[0][0]
+cholvec = train_dataset[2000][0]
 cov = (
     autocov.cholvec_to_covariance(cholvec.unsqueeze(0), 45).detach().numpy()[0]
 )
@@ -76,7 +70,7 @@ img = np.zeros_like(axes)
 for i in range(2):
     for j in range(N_figs):
         img[i, j] = axes[i, j].imshow(
-            cov, cmap="seismic_r", vmin=-3, vmax=3
+            cov, cmap="RdBu_r"
         )
 
 fig2.subplots_adjust(
@@ -138,8 +132,8 @@ try:
             output = model((cholvec, x))
             cholvec = model.normalize(cholvec)
             output = model.normalize(output)
-            loss = criterion(cholvec, output)
-            # loss =  autocov.frobenius_error(cholvec, output, normalize=True)
+            # loss = criterion(cholvec, output)
+            loss =  autocov.frobenius_error(cholvec, output, normalize=True)
 
             # Backward and optimize
             optimizer.zero_grad()

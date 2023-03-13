@@ -142,7 +142,9 @@ class CovarianceDataset(Dataset):
             cholvec = torch.Tensor(df.iloc[:, :-45].values)
             cov = cholvec_to_covariance(cholvec, 45)
             cov = cov / self.scaling_matrix
-            df.iloc[:, :-45] = tril_to_vec(cov).detach().numpy()
+            # cov = torch.linalg.inv(cov)
+            # df.iloc[:, :-45] = tril_to_vec(cov).detach().numpy()
+            df.iloc[:, :-45] = covariance_to_cholvec(cov).detach().numpy()
 
             dfs.append(df)
 
