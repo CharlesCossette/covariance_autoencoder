@@ -16,27 +16,29 @@ batch_size = 256
 learning_rate = 1e-3
 dataset_kwargs = {
     "samples_per_file": -1,
-    "data_dir": "/home/charles/multinav/results/",
+    "data_dir": "/home/charles/covariance_autoencoder/data",
 }
 scaling = True
 model_path = None
 # model_path = "./models/autoencoder.pth"
-train_file = [
-    "res_bias_calib2_decent_15_200_high_freq.p",
-    "res_simple_los_2022_08_03_12_41_20_decent_15_40.p",
-    "res_random1_decent_10_100.p",
-    "res_bias_calib2_decent_15_200_lower_freq_pre_fusion.p",
+# Get list of files in data directory
+train_files = os.listdir(dataset_kwargs["data_dir"])
+
+valid_files = ["res_random2_decent_15_55.p"]
+
+exclude_files = [
+    # "res_bias_calib2_decent_15_200_high_freq.p",
+    # "res_bias_calib2_decent_15_200_lower_freq_pre_fusion.p",
 ]
-valid_file = [
-    "res_random2_decent_15_55_lower_freq.p",
-    "res_random2_decent_15_55.p",
-]
+# Remove validation files from training files
+for file in valid_files + exclude_files:
+    train_files.remove(file)
 # train_file = valid_file
 
 ################################################################################
 # Dataset and data loader
-train_dataset = autocov.CovarianceDataset(train_file, **dataset_kwargs)
-val_dataset = autocov.CovarianceDataset(valid_file, **dataset_kwargs)
+train_dataset = autocov.CovarianceDataset(train_files, **dataset_kwargs)
+val_dataset = autocov.CovarianceDataset(valid_files, **dataset_kwargs)
 
 train_loader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True,
