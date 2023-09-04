@@ -13,7 +13,7 @@ torch.manual_seed(0)
 ################################################################################
 dataset_kwargs = {
     "samples_per_file": -1,
-    "data_dir": "/home/charles/multinav/results/",
+    "data_dir": "/home/charles/covariance_autoencoder/data",
 }
 scaling = True
 # model_path = "./models/autoencoder.pth"
@@ -29,15 +29,28 @@ valid_file = [
     "res_random2_decent_15_55.p",
 ]
 
-num_basis_matrices = 200
+# Get list of files in data directory
+train_files = os.listdir(dataset_kwargs["data_dir"])
+
+valid_files = ["res_random2_decent_15_55.p"]
+
+exclude_files = [
+    # "res_bias_calib2_decent_15_200_high_freq.p",
+    # "res_bias_calib2_decent_15_200_lower_freq_pre_fusion.p",
+]
+# Remove validation files from training files
+for file in valid_files + exclude_files:
+    train_files.remove(file)
+
+num_basis_matrices = 50
 num_epochs = 200
 batch_size = 1000
 learning_rate = 1e-3
 load_saved=False
 ################################################################################
 # Dataset and data loader
-train_dataset = autocov.CovarianceDataset(train_file, **dataset_kwargs)
-val_dataset = autocov.CovarianceDataset(valid_file, **dataset_kwargs)
+train_dataset = autocov.CovarianceDataset(train_files, **dataset_kwargs)
+val_dataset = autocov.CovarianceDataset(valid_files, **dataset_kwargs)
 idx = torch.linspace(0, len(train_dataset)-1, num_basis_matrices, dtype=torch.long)
 idx_val = torch.linspace(0, len(val_dataset)-1, 5000, dtype=torch.long)
 basis_matrices = train_dataset[idx][0]

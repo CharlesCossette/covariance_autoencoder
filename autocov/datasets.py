@@ -78,6 +78,10 @@ def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
     #cache dir relative to this file
     cache_path = os.path.join(os.path.dirname(__file__), "../cache")
 
+    # if the cache dir does not exist, create it
+    if not os.path.exists(cache_path):
+        os.mkdir(cache_path)
+
     cache_file_list = os.listdir(cache_path)
     files = []
     for filename in filename_list:

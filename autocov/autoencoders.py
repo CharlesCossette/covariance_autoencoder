@@ -18,10 +18,10 @@ class Autoencoder(nn.Module):
             nn.GELU(),
             nn.Linear(64, 32),
             nn.GELU(),
-            nn.Linear(32, 5),
+            nn.Linear(128, 15),
         )
         self.decoder = nn.Sequential(
-            nn.Linear(50, 64),
+            nn.Linear(45+15, 128),
             nn.GELU(),
             nn.Linear(64, 64),
             nn.GELU(),
