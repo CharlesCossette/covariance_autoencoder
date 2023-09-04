@@ -1,6 +1,6 @@
 import torch
-import pynav as nav
-from pylie import SE23, SO3
+import navlie as nav
+from pymlg import SE23, SO3
 # import multinav
 import multinav.arpimu  as arpimu
 # import multinav.mrfilter
@@ -23,7 +23,7 @@ arpimu_identity_state = ARPIMUState.from_absolute_states(
     1,
 )
 
-def _pynav_to_dataframes(file_path: str) -> Dict[str, pd.DataFrame]:
+def _navlie_to_dataframes(file_path: str) -> Dict[str, pd.DataFrame]:
     """
     
 
@@ -61,14 +61,14 @@ def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
     """
     Identifies the list of files that need to be loaded from the cache to 
     constitute the dataset. If the cache files does not exist, then the
-    pynav file is parsed and the cache files are created.
+    navlie file is parsed and the cache files are created.
 
     Parameters
     ----------
     filename_list : str
-        list of pynav files to load
+        list of navlie files to load
     data_dir : str
-        string of the directory where the pynav files are stored
+        string of the directory where the navlie files are stored
 
     Returns
     -------
@@ -87,8 +87,8 @@ def _get_data_files(filename_list: str, data_dir: str) -> List[str]:
             # Then there is cache entry! just load it
             files.extend([f for f in cache_file_list if file_name_no_ext in f])
         else: 
-            # Otherwise, need to parse the pynav file directly.
-            df_dict = _pynav_to_dataframes(os.path.join(data_dir, filename))
+            # Otherwise, need to parse the navlie file directly.
+            df_dict = _navlie_to_dataframes(os.path.join(data_dir, filename))
             # Cache the results
             for agent_name, df in df_dict.items():
                 cache_file_name = f"{file_name_no_ext}_{agent_name}.cache"
@@ -293,7 +293,7 @@ class IMUExperimentalRMI(Dataset):
                 imu_data = IMUData.from_bag(
                     bagfile, f"/{agent}/mavros/imu/data_raw"
                 )
-                imu_list = imu_data.to_pynav()
+                imu_list = imu_data.to_navlie()
 
                 # Divide into chunks of 10
                 for i in range(0, len(imu_list), 11):

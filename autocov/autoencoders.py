@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import pynav as nav
-from pylie import SE23, SO3
+import navlie as nav
+from pymlg import SE23, SO3
 import multinav.arpimu
 import multinav.mrfilter
 import numpy as np
@@ -58,7 +58,7 @@ class Autoencoder(nn.Module):
             return cholvec
         return cholvec
 
-    def forward_from_pynav(self, x: multinav.mrfilter.MRFilterState):
+    def forward_from_navlie(self, x: multinav.mrfilter.MRFilterState):
         """
         Parameters
         ----------
@@ -147,7 +147,7 @@ class RMICovModel(torch.nn.Module):
             )
             self.load_state_dict(torch.load(model_file))
 
-    def forward_from_pynav(self, rmi: nav.lib.RelativeMotionIncrement):
+    def forward_from_navlie(self, rmi: nav.lib.RelativeMotionIncrement):
         cov = torch.from_numpy(rmi.covariance)
         cov = cov.unsqueeze(0)
         trilvecs = tril_to_vec(cov, 15) / 1e-8
@@ -199,7 +199,7 @@ class BasisModel(nn.Module):
         self.static_matrices = tril_to_vec(torch.eye(45).unsqueeze(0)).reshape((-1, 1))
 
 
-    def forward_from_pynav(self, x: multinav.mrfilter.MRFilterState):
+    def forward_from_navlie(self, x: multinav.mrfilter.MRFilterState):
         """
         Parameters
         ----------

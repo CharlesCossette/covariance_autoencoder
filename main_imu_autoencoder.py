@@ -11,7 +11,7 @@ import os
 import traceback
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np 
-import pynav as nav
+import navlie as nav
 model_path = None
 # model_path = "./models/imu_rmi_cov.pth"
 
