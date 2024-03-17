@@ -138,7 +138,7 @@ class RMICovModel(torch.nn.Module):
             nn.GELU(),
             nn.Linear(256, 120),
         )
-        self.residual_matrix = nn.Parameter(torch.randn((120, 10 + encoding_size)))
+        #self.residual_matrix = nn.Parameter(torch.randn((120, 10 + encoding_size)))
 
         if load_saved:
             # model file relative to this file
@@ -173,7 +173,20 @@ class RMICovModel(torch.nn.Module):
         if self.encoding_size > 0:
             enc = self.encoder(trilvecs)
             x = torch.cat((x, enc), dim=1)
-        x = self.decoder(x) + torch.matmul(x, self.residual_matrix.T)
+        x = self.decoder(x)# + torch.matmul(x, self.residual_matrix.T)
+
+        # x is now a [batch x 120] vector representing the lower triangle of a cholesky decomposition.
+        # To ensure positive definiteness, we square the diagonal elements.
+        x = vec_to_tril(x, 15) # x is now [batch x 15 x 15]
+
+        # Get diagonal ements
+        diag = torch.diagonal(x, dim1=-2, dim2=-1)
+
+        # Remove diagonal from the 15x15 matrices and re-add the squared diagonal
+        x = x - torch.diag_embed(diag)
+        x = x + torch.diag_embed(diag ** 2)
+        x = tril_to_vec(x)
+
         return x
 
 

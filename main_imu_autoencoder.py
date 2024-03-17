@@ -3,6 +3,7 @@ from autocov import (
     IMUExperimentalRMI,
     tril_to_sym,
     vec_to_tril,
+    cholvec_to_covariance,
     RMICovModel,
 )
 import torch
@@ -17,13 +18,17 @@ model_path = None
 
 torch.set_default_dtype(torch.float64)
 
-encoding_size = 2
+encoding_size = 5
 def covariance_error(trilvecs, trilvecs_out):
     trilvecs = vec_to_tril(trilvecs, 15)
-    trilvecs_out = vec_to_tril(trilvecs_out, 15)
+    # trilvecs_out = vec_to_tril(trilvecs_out, 15)
 
     cov = tril_to_sym(trilvecs)
-    cov_out = tril_to_sym(trilvecs_out)
+    # cov_out = tril_to_sym(trilvecs_out)
+
+    # cov = cholvec_to_covariance(trilvecs, size=15)
+    cov_out = cholvec_to_covariance(trilvecs_out, size=15)
+
 
     e = torch.linalg.matrix_norm(
         cov - cov_out, ord="fro"
@@ -64,11 +69,9 @@ try:
         with torch.no_grad():
             rmis, trilvecs = validset[:]
             trilvecs_out = model(rmis, trilvecs)
-            trilvecs = vec_to_tril(trilvecs, 15)
-            trilvecs_out = vec_to_tril(trilvecs_out, 15)
+            cov = tril_to_sym(vec_to_tril(trilvecs, size=15))
 
-            cov = tril_to_sym(trilvecs)
-            cov_out = tril_to_sym(trilvecs_out)
+            cov_out = cholvec_to_covariance(trilvecs_out, size=15)
 
             e = torch.linalg.matrix_norm(
                 cov - cov_out, ord="fro"
